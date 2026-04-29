@@ -3,72 +3,86 @@ import pandas as pd
 import fitz  # PyMuPDF
 import re
 
-# 1. ESTILO "COMMAND CENTER" (Alto contraste, sin opacidad)
-st.set_page_config(page_title="Customs PDF Intelligence", layout="wide")
-
+# 1. ESTILO TERMINAL DE ALTO CONTRASTE
+st.set_page_config(page_title="Customs PDF Scanner Pro", layout="wide")
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #00FF41; }
-    .css-1r6slb0 { background-color: #0a0a0a; border: 1px solid #00FF41; padding: 20px; border-radius: 10px; }
-    h1, h2, h3 { color: #00FF41 !important; font-family: 'Courier New', Courier, monospace; }
+    [data-testid="stMetric"] { background-color: #050505; border: 1px solid #00FF41; }
+    h1, h2, h3 { color: #00FF41 !important; }
     .stDataFrame { border: 1px solid #00FF41; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MOTOR DE EXTRACCIÓN CORRELACIONADA
-def analizar_pdf_estructurado(archivo):
+# 2. MOTOR DE LIMPIEZA Y EXTRACCIÓN
+def analizar_aduana_pro(archivo):
     doc = fitz.open(stream=archivo.read(), filetype="pdf")
-    texto_total = ""
+    texto_limpio = ""
+    
     for pagina in doc:
-        texto_total += pagina.get_text()
+        # Extraemos texto ignorando elementos gráficos pequeños (donde suelen estar QR/Barcodes)
+        texto_limpio += pagina.get_text("text")
 
-    # Buscamos todos los datos con RegEx
-    rfcs = re.findall(r'[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}', texto_total)
-    pedimentos = re.findall(r'\d{2}  \d{2}  \d{4}  \d{7}', texto_total)
-    fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto_total)
+    # --- FILTROS DE SEGURIDAD (Ignorar códigos de barras/QR) ---
+    # Los códigos de barras suelen ser cadenas de más de 20 números seguidos. Los borramos.
+    texto_procesado = re.sub(r'\d{20,}', '', texto_limpio)
+
+    # --- EXTRACCIÓN POR ANCLAJE (REGEX AVANZADO) ---
+    # Buscamos patrones específicos del formato de pedimento mexicano
+    patrones = {
+        # Formato: 24  47  3956  4001234 (con o sin espacios)
+        "PEDIMENTO": re.findall(r'\d{2}\s{1,2}\d{2}\s{1,2}\d{4}\s{1,2}\d{7}', texto_procesado),
+        # RFC: 3-4 letras, 6 números, 3 alfanuméricos
+        "RFC": re.findall(r'[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}', texto_procesado),
+        # Valor Aduana: Buscamos el número que sigue a la palabra clave
+        "VALOR_ADUANA": re.findall(r'(?:VALOR ADUANA|VAL\. ADUANA)[:\s]*([\d,]+)', texto_procesado, re.IGNORECASE)
+    }
+
+    # --- ORDENAMIENTO DE DATOS ---
+    # Creamos una lista de diccionarios asegurando que los datos se alineen
+    max_filas = max(len(patrones["PEDIMENTO"]), len(patrones["RFC"]), 1)
+    tabla = []
     
-    # Intentamos crear una estructura de tabla (Filas)
-    # Si el PDF es un reporte con varios registros, intentamos emparejarlos
-    max_len = max(len(rfcs), len(pedimentos), len(fechas))
-    
-    # Rellenamos con "N/A" para que la tabla no falle si falta algún dato
-    datos_limpios = []
-    for i in range(max_len):
+    for i in range(max_filas):
         fila = {
-            "ID_OPERACION": i + 1,
-            "PEDIMENTO": pedimentos[i] if i < len(pedimentos) else "No detectado",
-            "RFC_CLIENTE": rfcs[i] if i < len(rfcs) else "No detectado",
-            "FECHA_PAGO": fechas[i] if i < len(fechas) else "No detectada"
+            "PEDIMENTO": patrones["PEDIMENTO"][i] if i < len(patrones["PEDIMENTO"]) else "N/A",
+            "RFC_DETECTADO": patrones["RFC"][i] if i < len(patrones["RFC"]) else "N/A",
+            "VALOR_APROX": patrones["VALOR_ADUANA"][i] if i < len(patrones["VALOR_ADUANA"]) else "Ver en PDF"
         }
-        datos_limpios.append(fila)
-    
-    return pd.DataFrame(datos_limpios), texto_total
+        # Solo agregamos si la fila no está vacía de datos reales
+        if fila["PEDIMENTO"] != "N/A" or fila["RFC_DETECTADO"] != "N/A":
+            tabla.append(fila)
 
-# 3. INTERFAZ
-st.title("⚡ PDF DATA EXTRACTOR PRO")
-st.write("---")
+    return pd.DataFrame(tabla), texto_procesado
 
-archivo = st.sidebar.file_uploader("Sube el PDF del Pedimento o Factura", type=["pdf"])
+# 3. INTERFAZ DE USUARIO
+st.title("🖥️ MOTOR DE EXTRACCIÓN ADUANERA V3")
+st.write("Filtro de códigos de barras y QR activado.")
+
+archivo = st.sidebar.file_uploader("Cargar Pedimento PDF", type=["pdf"])
 
 if archivo:
-    df_resultado, texto_bruto = analizar_pdf_estructurado(archivo)
-    
-    # MÉTRICAS RESUMIDAS (Cuadros de valor)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("REGISTROS DETECTADOS", len(df_resultado))
-    with col2:
-        st.metric("PÁGINAS PROCESADAS", "Completo")
+    with st.spinner('Analizando estructura del documento...'):
+        df, texto_raw = analizar_aduana_pro(archivo)
+        
+        if not df.empty:
+            st.success("Extracción completada con éxito.")
+            
+            # Buscador sobre los datos extraídos
+            busqueda = st.text_input("🔍 Buscar dentro de lo extraído:")
+            if busqueda:
+                df = df[df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)]
+            
+            st.write("### 📋 RESULTADOS ORDENADOS")
+            st.dataframe(df, use_container_width=True)
+            
+            # Botón de descarga
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("💾 Exportar a Excel (CSV)", csv, "aduana_clean.csv", "text/csv")
+        else:
+            st.warning("No se detectaron patrones de pedimento claros. Revisa la calidad del PDF.")
 
-    st.write("### 📋 VISTA ESTRUCTURADA (DATOS CORRELACIONADOS)")
-    # Aquí es donde ocurre la magia: ya no son cuadros sueltos, es una tabla
-    st.table(df_resultado) # Usamos table para que sea más "sólida" visualmente
-
-    # OPCIÓN DE DESCARGA
-    csv = df_resultado.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 DESCARGAR ESTA EXTRACCIÓN A EXCEL/CSV", csv, "extraccion_pdf.csv", "text/csv")
-
-    with st.expander("🔍 VER AUDITORÍA DE TEXTO (RAW DATA)"):
-        st.text(texto_bruto)
+        with st.expander("Ver Auditoría de Texto (Limpieza de códigos aplicada)"):
+            st.text(texto_raw)
 else:
-    st.info("💡 Sube un PDF para convertir sus datos en una tabla estructurada.")
+    st.info("Esperando archivo... El sistema ignorará automáticamente los códigos de barras y QR para evitar ruido.")
