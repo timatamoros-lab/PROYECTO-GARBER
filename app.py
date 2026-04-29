@@ -2,108 +2,128 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. CONFIGURACIÓN DE PÁGINA (Estética Dark/Modern)
-st.set_page_config(page_title="Customs Intelligence Hub", layout="wide", page_icon="🚀")
+# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO "HIGH-CONTRAST"
+st.set_page_config(page_title="Customs AI - TI Command", layout="wide", page_icon="⚡")
 
-# CSS para darle "sabor" (Gradientes y bordes redondeados)
+# CSS para inyectar colores vibrantes y quitar lo "opaco"
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(to right, #ece9e6, #ffffff); }
-    .main-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
+    /* Fondo principal oscuro profundo */
+    .stApp { background-color: #0E1117; color: #FFFFFF; }
+    
+    /* Tarjetas de métricas con bordes de neón */
+    [data-testid="stMetric"] {
+        background-color: #161B22;
+        border: 1px solid #00F2FF;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0px 0px 10px rgba(0, 242, 255, 0.2);
     }
-    .stMetric { border-left: 5px solid #1f77b4; background: #f0f2f6; padding: 10px; border-radius: 5px; }
+    
+    /* Títulos con degradado */
+    h1, h2, h3 {
+        background: linear-gradient(to right, #00F2FF, #7000FF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: bold;
+    }
+
+    /* Estilo para la tabla */
+    .stDataFrame { border: 1px solid #30363D; border-radius: 10px; }
+    
+    /* Input de búsqueda resaltado */
+    .stTextInput>div>div>input {
+        background-color: #161B22;
+        color: #00F2FF;
+        border: 1px solid #7000FF;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. LÓGICA DE DETECCIÓN INTELIGENTE
-def detectar_columnas(df):
-    """Intenta mapear columnas comunes de aduanas aunque cambien los nombres"""
-    mapeo = {
-        'valor': next((c for c in df.columns if 'valor' in c.lower() or 'monto' in c.lower() or 'usd' in c.lower()), None),
-        'cliente': next((c for c in df.columns if 'cliente' in c.lower() or 'nombre' in c.lower() or 'importador' in c.lower()), None),
-        'identificador': next((c for c in df.columns if 'pedimento' in c.lower() or 'id' in c.lower() or 'referencia' in c.lower()), None),
-        'status': next((c for c in df.columns if 'semaforo' in c.lower() or 'estado' in c.lower() or 'estatus' in c.lower()), None)
+# 2. FUNCIONES DE APOYO
+def detect_data(df):
+    """Mapeo inteligente para que no se pierda nada"""
+    cols = {
+        'val': next((c for c in df.columns if any(x in c.lower() for x in ['valor', 'monto', 'total', 'usd'])), None),
+        'label': next((c for c in df.columns if any(x in c.lower() for x in ['cliente', 'nombre', 'razon', 'importador'])), None),
+        'status': next((c for c in df.columns if any(x in c.lower() for x in ['semaforo', 'estatus', 'estado'])), None)
     }
-    return mapeo
+    return cols
 
 # 3. INTERFAZ LATERAL
 with st.sidebar:
-    st.title("⚓ Customs Engine")
+    st.title("🛡️ TI ADUANAS")
     st.markdown("---")
-    archivo = st.file_uploader("📂 Arrastra cualquier reporte aduanero", type=["xlsx", "csv"])
-    if archivo:
-        st.success("¡Documento detectado!")
+    archivo = st.file_uploader("🚀 CARGAR REPORTE", type=["xlsx", "csv"])
+    st.markdown("---")
+    st.write("Configuración de Interfaz")
+    vibrante = st.toggle("Colores de alto impacto", value=True)
 
 # 4. CUERPO PRINCIPAL
 if archivo:
     try:
-        # Leer archivo
         df = pd.read_excel(archivo) if archivo.name.endswith('xlsx') else pd.read_csv(archivo)
-        df = df.fillna("N/A") # Evitar valores vacíos feos
+        df = df.fillna("SIN DATOS")
+        mapping = detect_data(df)
         
-        # Mapeo inteligente
-        columnas = detectar_columnas(df)
-        
-        # BUSCADOR UNIVERSAL (El "Sabor")
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        query = st.text_input("🔍 Buscador Inteligente (Escribe cualquier Pedimento, RFC o Cliente...)", placeholder="Ejemplo: 2401234...")
+        # BUSCADOR TIPO GOOGLE (NEÓN)
+        st.write("### 🔍 BUSCADOR UNIVERSAL")
+        query = st.text_input("", placeholder="Escribe cualquier dato para filtrar el reporte completo...")
         
         if query:
-            # Filtra en todas las columnas al mismo tiempo
             mask = df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)
-            df_display = df[mask]
+            df_filtered = df[mask]
         else:
-            df_display = df
+            df_filtered = df
 
-        # MÉTRICAS DINÁMICAS (Se adaptan a lo que encuentre)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Registros Encontrados", len(df_display))
-        with col2:
-            if columnas['valor']:
-                total = df_display[columnas['valor']].replace('[$,]', '', regex=True).astype(float).sum()
-                st.metric("Valor Acumulado", f"${total:,.2f}")
-        with col3:
-            st.metric("Columnas Analizadas", len(df.columns))
-        st.markdown('</div>', unsafe_allow_html=True)
+        # MÉTRICAS CON COLOR
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("REGISTROS", len(df_filtered))
+        with m2:
+            if mapping['val']:
+                # Limpiar y sumar valores
+                try:
+                    total = pd.to_numeric(df_filtered[mapping['val']].replace('[$,]', '', regex=True)).sum()
+                    st.metric("VALOR TOTAL", f"${total:,.2f}", delta="USD")
+                except: st.metric("VALOR TOTAL", "Error formato")
+        with m3:
+            st.metric("COLUMNAS", len(df.columns))
 
-        # GRÁFICAS DINÁMICAS (Solo aparecen si detecta datos relevantes)
-        c1, c2 = st.columns([2, 1])
+        st.markdown("---")
+
+        # GRÁFICAS CON COLORES ELÉCTRICOS
+        c1, c2 = st.columns([1.5, 1])
         
         with c1:
-            st.subheader("📍 Visualización de Datos")
-            # Si hay una columna de valor y una de cliente, hacemos gráfica
-            if columnas['valor'] and columnas['cliente']:
-                fig = px.bar(df_display.head(20), x=columnas['cliente'], y=columnas['valor'], 
-                             color=columnas['cliente'], title="Top 20 por Valor")
+            if mapping['val'] and mapping['label']:
+                st.write("### 🔥 ANÁLISIS DE VOLUMEN")
+                fig = px.bar(df_filtered.head(15), x=mapping['label'], y=mapping['val'], 
+                             color=mapping['val'], 
+                             color_continuous_scale='Turbo') # Colores vibrantes
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("💡 Tip: Si tu Excel tiene columnas de 'Valor' y 'Cliente', aquí verás una gráfica.")
-
+        
         with c2:
-            st.subheader("📋 Acciones")
-            st.download_button("📥 Exportar Vista Actual", df_display.to_csv(index=False), "busqueda_aduanas.csv")
-            if st.button("🚀 Limpiar Filtros"):
-                st.rerun()
+            if mapping['status']:
+                st.write("### 🚦 SEMÁFORO")
+                fig2 = px.pie(df_filtered, names=mapping['status'], hole=0.6,
+                              color_discrete_sequence=px.colors.sequential.Electric)
+                fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
+                st.plotly_chart(fig2, use_container_width=True)
 
-        # TABLA ESTILIZADA
-        st.subheader("Datos del Reporte")
-        st.dataframe(df_display, use_container_width=True, height=400)
+        # TABLA DE DATOS CRUDA
+        st.write("### 📦 DATOS DEL SISTEMA")
+        st.dataframe(df_filtered, use_container_width=True)
 
     except Exception as e:
-        st.error(f"⚠️ No pude procesar este archivo: {e}")
+        st.error(f"Error en el motor de datos: {e}")
 
 else:
-    # Pantalla inicial con diseño "Limpio"
     st.markdown("""
-        <div style="text-align: center; padding: 100px;">
-            <h1 style="font-size: 50px;">🛳️</h1>
-            <h2>Listo para analizar cualquier reporte</h2>
-            <p style="color: gray;">Sube un Excel para empezar a buscar datos sin restricciones.</p>
+        <div style="text-align: center; margin-top: 50px; border: 2px dashed #7000FF; padding: 50px; border-radius: 20px;">
+            <h1 style="font-size: 80px;">🚢</h1>
+            <h2 style="color: #00F2FF;">CENTRO DE MANDO TI</h2>
+            <p style="font-size: 20px; color: #888;">Sube un archivo para iniciar el escaneo de seguridad y logística.</p>
         </div>
         """, unsafe_allow_html=True)
