@@ -1,4 +1,4 @@
-=import streamlit as st
+import streamlit as st
 import pandas as pd
 import fitz  # PyMuPDF
 import re
@@ -23,22 +23,22 @@ def motor_extraccion_estructurada(archivo):
     for pagina in doc:
         texto_sucio += pagina.get_text("text") + "\n"
 
-    # Limpieza de firmas y certificados largos para evitar errores
+    # Limpieza de firmas y certificados largos para evitar errores [cite: 65, 66]
     texto_limpio = re.sub(r'[A-Za-z0-9+/]{50,}', '', texto_sucio)
     texto_limpio = re.sub(r'\d{15,}', '', texto_limpio)
 
-    # EXTRACCIÓN DE ENCABEZADO
+    # EXTRACCIÓN DE ENCABEZADO [cite: 3, 10, 6, 30]
     # Usamos búsqueda por ancla para los datos principales
     pedimento_match = re.search(r'NUM\. PEDIMENTO:\s*([\d\s]{15,})', texto_limpio)
     rfc_match = re.search(r'Clave en el RFC:\s*([A-Z0-9]{12,13})', texto_limpio)
     valor_aduana_match = re.search(r'VALOR ADUANA:\s*([\d,]+)', texto_limpio)
     fecha_pago_match = re.search(r'FECHA DE PAGO\s*(\d{2}/\d{2}/\d{4})', texto_limpio)
 
-    # EXTRACCIÓN DE PARTIDAS (Agrupando Factura, Parte y PO)
+    # EXTRACCIÓN DE PARTIDAS (Agrupando Factura, Parte y PO) 
     # Buscamos el bloque específico que me mostraste en la imagen
     bloques_partidas = re.findall(r'FACTURA:\s*(\S+)\s*NO\.\s*PARTE:\s*(\S+)\s*PO:\s*(\d+)', texto_limpio)
     
-    # También buscamos las Fracciones Arancelarias (8 dígitos solos)
+    # También buscamos las Fracciones Arancelarias (8 dígitos solos) [cite: 164, 190, 271]
     fracciones = re.findall(r'\n(\d{8})\n', texto_limpio)
 
     # Construcción de la tabla
@@ -71,4 +71,27 @@ if archivo:
     with st.spinner('Procesando estructura del pedimento...'):
         df_partidas, info, texto_audit = motor_extraccion_estructurada(archivo)
         
-        # Panel Superior: Métricas
+        # Panel Superior: Métricas [cite: 3, 10, 6]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("PEDIMENTO", info["pedimento"])
+        c2.metric("RFC CLIENTE", info["rfc"])
+        c3.metric("VALOR ADUANA", f"${info['valor']}")
+        c4.metric("FECHA PAGO", info["fecha"])
+
+        st.write("### 📋 PARTIDAS DETECTADAS (TABLA ESTRUCTURADA)")
+        # Buscador dinámico
+        busqueda = st.text_input("🔍 Buscar por Parte, Factura o PO:")
+        if busqueda:
+            df_partidas = df_partidas[df_partidas.astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)]
+        
+        # Despliegue de la tabla principal
+        st.dataframe(df_partidas, use_container_width=True, hide_index=True)
+
+        # Botón de exportación
+        csv = df_partidas.to_csv(index=False).encode('utf-8')
+        st.download_button("💾 DESCARGAR EXCEL (CSV)", csv, "reporte_partidas.csv", "text/csv")
+
+        with st.expander("📝 Ver Auditoría de Texto (Datos Crudos)"):
+            st.text(texto_audit)
+else:
+    st.info("Sube el PDF del pedimento para ordenar la información en tablas.")
