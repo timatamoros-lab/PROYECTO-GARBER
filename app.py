@@ -2,114 +2,94 @@ import streamlit as st
 import pandas as pd
 import fitz  # PyMuPDF
 import re
+from collections import Counter
 
-# 1. CONFIGURACIÓN DE INTERFAZ PROFESIONAL
-st.set_page_config(page_title="Garber Customs Ultra-Extractor", layout="wide")
+# 1. ESTILO "AI INTERFACE"
+st.set_page_config(page_title="Universal AI PDF Scanner", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #000; color: #00FF41; }
-    [data-testid="stMetric"] { background-color: #111; border: 1px solid #00FF41; box-shadow: 0 0 10px #00FF41; }
-    h1, h2, h3 { color: #00FF41 !important; font-family: 'Courier New'; }
+    .stTabs [data-baseweb="tab"] { color: #00FF41 !important; }
+    .css-1r6slb0 { background-color: #0a0a0a; border: 1px solid #00FF41; }
+    h1, h2, h3 { color: #00FF41 !important; text-shadow: 0 0 10px #00FF41; }
     .stDataFrame { border: 1px solid #00FF41; }
     </style>
     """, unsafe_allow_html=True)
 
-def limpiar_texto_extremo(t):
-    """Elimina ruido de tablas, comillas y saltos de línea para normalizar el texto"""
-    return t.replace('"', '').replace('\n', ' ').replace(',', '').replace('\\n', ' ')
-
-def extractor_total_power(archivo):
+# 2. MOTOR DE INTELIGENCIA UNIVERSAL
+def motor_universal(archivo):
     doc = fitz.open(stream=archivo.read(), filetype="pdf")
-    texto_bruto = ""
-    for pagina in doc:
-        texto_bruto += pagina.get_text("text") + "\n"
+    texto_por_pagina = []
+    texto_total = ""
     
-    # Normalizamos el texto para que las búsquedas sean infalibles
-    texto_norm = limpiar_texto_extremo(texto_bruto)
+    for i, pagina in enumerate(doc):
+        t = pagina.get_text("text")
+        texto_por_pagina.append(t)
+        texto_total += t + "\n"
 
-    # --- DICCIONARIO DE PATRONES (Mapeo Inteligente) ---
-    def buscar(etiqueta, patron):
-        # Busca la etiqueta y captura lo que sigue, ignorando basura visual
-        match = re.search(f"{etiqueta}\s*[:\-]*\s*({patron})", texto_norm, re.IGNORECASE)
-        return match.group(1).strip() if match else "N/A"
-
-    # Campos de Encabezado
-    data_head = {
-        "PEDIMENTO": buscar("NUM. PEDIMENTO", r"[\d\s]{15,17}"),
-        "RFC": buscar("RFC", r"[A-Z0-9]{12,13}"),
-        "VALOR_ADUANA": buscar("VALOR ADUANA", r"[\d\.]+"),
-        "TIPO_CAMBIO": buscar("TIPO DE CAMBIO", r"[\d\.]+"),
-        "FECHA_PAGO": buscar("FECHA DE PAGO", r"\d{2}/\d{2}/\d{4}"),
-        "PESO_BRUTO": buscar("PESO BRUTO", r"[\d\.]+")
+    # --- ANÁLISIS DINÁMICO DE CONTENIDO ---
+    
+    # Identificar Entidades (Palabras que parecen datos clave)
+    # Buscamos: Fechas, Montos, RFCs/IDs, y Correos
+    entidades = {
+        "FECHAS": list(set(re.findall(r'\d{2}[/-]\d{2}[/-]\d{4}', texto_total))),
+        "MONTO_MONEDA": list(set(re.findall(r'\$\s?[\d,.]+', texto_total))),
+        "IDENTIFICADORES": list(set(re.findall(r'[A-Z]{3,4}[0-9]{6}[A-Z0-9]{3}|[A-Z0-9]{10,20}', texto_total))),
+        "EMAILS": list(set(re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', texto_total)))
     }
 
-    # --- EXTRACCIÓN DE PARTIDAS (EL DESGLOSE) ---
-    # Buscamos la tríada Factura + Parte + PO
-    bloques_partidas = re.findall(r'FACTURA:\s*(\S+)\s*NO\.\s*PARTE:\s*(\S+)\s*PO:\s*(\d+)', texto_bruto)
+    # Intentar detectar Tablas (Cualquier línea que tenga múltiples datos seguidos)
+    lineas = texto_total.split('\n')
+    posibles_filas = []
+    for line in lineas:
+        partes = re.split(r'\s{2,}|,', line) # Divide por 2 espacios o comas
+        if len(partes) > 2:
+            posibles_filas.append(partes)
     
-    # Buscamos Fracciones Arancelarias (8 dígitos solos en una línea)
-    fracciones = re.findall(r'\n(\d{8})\n', texto_bruto)
+    df_tabla = pd.DataFrame(posibles_filas) if posibles_filas else pd.DataFrame()
 
-    lista_final = []
-    if bloques_partidas:
-        for i, b in enumerate(bloques_partidas):
-            item = {
-                "ARCHIVO": archivo.name,
-                "PEDIMENTO": data_head["PEDIMENTO"].replace(" ", ""),
-                "RFC_CLIENTE": data_head["RFC"],
-                "VALOR_ADUANA_TOT": data_head["VALOR_ADUANA"],
-                "FECHA": data_head["FECHA_PAGO"],
-                "FACTURA_ITEM": b[0],
-                "NUM_PARTE": b[1],
-                "P.O.": b[2],
-                "FRACCION": fracciones[i] if i < len(fracciones) else "N/A"
-            }
-            lista_final.append(item)
-    else:
-        # Si no hay partidas, registramos el encabezado solo
-        lista_final.append({**{"ARCHIVO": archivo.name}, **data_head, **{"AVISO": "Sin partidas detectadas"}})
+    return texto_total, entidades, df_tabla, len(doc)
 
-    return lista_final
+# 3. INTERFAZ DE USUARIO
+st.title("🧠 UNIVERSAL AI PDF DECODER")
+st.write("Sube cualquier documento. El sistema analizará su estructura y extraerá la información relevante.")
 
-# --- INTERFAZ ---
-st.title("⚓ GARBER ULTRA-EXTRACTOR V5")
-st.write("Carga masiva y desglose automático de pedimentos.")
-
-archivos = st.sidebar.file_uploader("📂 SUBIR PDFS", type=["pdf"], accept_multiple_files=True)
+archivos = st.sidebar.file_uploader("📂 CARGA MASIVA DE PDFs", type=["pdf"], accept_multiple_files=True)
 
 if archivos:
-    datos_consolidados = []
     for f in archivos:
-        try:
-            datos_consolidados.extend(extractor_total_power(f))
-        except Exception as e:
-            st.error(f"Error en {f.name}: {e}")
+        with st.expander(f"📄 ANÁLISIS DE: {f.name}", expanded=True):
+            texto, datos, tabla, pags = motor_universal(f)
+            
+            # Pestañas para organizar la info de CUALQUIER PDF
+            tab1, tab2, tab3 = st.tabs(["📊 Datos Clave", "📋 Tabla Detectada", "📝 Texto Completo"])
+            
+            with tab1:
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("PÁGINAS", pags)
+                col2.metric("DATOS ENCONTRADOS", sum(len(v) for v in datos.values()))
+                
+                # Mostrar entidades encontradas dinámicamente
+                for categoria, valores in datos.items():
+                    if valores:
+                        st.write(f"**{categoria}:**")
+                        st.info(", ".join(valores[:15])) # Limitar a 15 para no saturar
+
+            with tab2:
+                if not tabla.empty:
+                    st.write("Se detectó la siguiente estructura de datos:")
+                    st.dataframe(tabla, use_container_width=True)
+                    st.download_button(f"📥 Exportar Tabla de {f.name}", tabla.to_csv(index=False), f"tabla_{f.name}.csv")
+                else:
+                    st.warning("No se detectó una estructura de tabla clara en este archivo.")
+
+            with tab3:
+                st.text_area("Contenido extraído:", texto, height=300)
     
-    df = pd.DataFrame(datos_consolidados)
-
-    # Métricas de Poder
-    m1, m2, m3 = st.columns(3)
-    m1.metric("ARCHIVOS", len(archivos))
-    m2.metric("TOTAL LINEAS", len(df))
-    m3.metric("CLIENTES", df['RFC'].nunique() if 'RFC' in df.columns else 0)
-
-    st.markdown("---")
-    
-    # Buscador Universal
-    filtro = st.text_input("🔍 BUSCADOR INTELIGENTE (Filtra facturas, partes, RFC o pedimentos...)")
-    if filtro:
-        df = df[df.astype(str).apply(lambda x: x.str.contains(filtro, case=False)).any(axis=1)]
-
-    # Tabla Maestra
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    # Exportación masiva
-    st.download_button(
-        "📥 DESCARGAR BASE DE DATOS (CSV/EXCEL)",
-        df.to_csv(index=False).encode('utf-8'),
-        "aduana_consolidado.csv",
-        "text/csv"
-    )
+    # BOTÓN PARA CONSOLIDAR TODO (Si son varios archivos)
+    if len(archivos) > 1:
+        st.sidebar.success("Modo Masivo Activo")
+        st.sidebar.button("Generar Reporte Maestro de todos los PDFs")
 else:
-    st.info("Sistema listo. Esperando archivos para el desglose masivo.")
+    st.info("Sistema Universal listo. Sube pedimentos, facturas, contratos o reportes.")
